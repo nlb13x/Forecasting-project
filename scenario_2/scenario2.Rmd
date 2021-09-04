@@ -1,0 +1,148 @@
+---
+title: "Scenario 2"
+author: "Nipun"
+date: "21/04/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE}
+library("fpp2")
+library("forecast")
+library("astsa")
+library("tseries")
+library("fGarch")
+```
+
+```{r}
+# reads all the stocks into the stock_matrix
+num_stocks <- 1:40
+stock_matrix <- matrix(data = NA, nrow=150, ncol=40)
+for (i in num_stocks) {
+  stock_name <- paste("stock",i,sep="")
+  stock_name = paste(stock_name,".txt",sep="")
+  stock_table <- read.table(stock_name, header = TRUE, stringsAsFactors = FALSE, sep=",")
+  stock_matrix[,i] = stock_table$x
+}
+```
+
+We will attempt to fit ARMA + GARCH models to our 40 stock time series by using Akaike Information criteria as our information criteria.
+
+```{r, warning=FALSE}
+
+stock_params <- matrix(data = NA, nrow=4, ncol=40)
+for (i in num_stocks) {
+  stock_x = ts(stock_matrix[,i], start=1, frequency=1)
+  stockfinal.aic <- Inf
+  stockfinalG.order <- c(0,0,0,0)
+  for (p in 0:2) for (q in 0:2) for (pG in 1:2) for (qG in 0:2) {
+    stockcurr.aic <- as.numeric(garchFit(substitute(~arma(a,b)+garch(i,j), list(a=p, b=q, i=pG,j=qG)), stock_x,trace=F)@fit$ics[1])
+    if (stockcurr.aic < stockfinal.aic) {
+         stockfinal.aic <- stockcurr.aic
+         stockfinalG.order <- c(p, q, pG, qG)
+       }
+  }
+  
+  stock_params[,i] = stockfinalG.order
+}
+
+## plot the acf(resid(stockfinal.arima)) to show that we have achieved a good fit
+## plot the acf(resid(stockfinal.arima)^2) to show conditional heteroscedasticity in the data
+```
+
+
+Upon calculating the ARMA+GARCH model parameters for each stock time series, we will show the the goodness of fit for the stock1 and stock14 time series by looking at the whiteness of the residuals and 
+
+```{r}
+stock_1 = ts(stock_matrix[,1], start=1, frequency=1)
+stock_14 = ts(stock_matrix[,14], start=1, frequency=1)
+par(mfrow=c(1,2)) 
+acf(stock_1)
+acf(stock_1^2)
+par(mfrow=c(1,2)) 
+acf(stock_14)
+acf(stock_14^2)
+Box.test(stock_1^2,20,"Ljung-Box")
+Box.test(stock_14^2,20,"Ljung-Box")
+```
+```{r,results="hide"}
+g1 <- garchFit(~arma(2,2)+garch(1,0), stock_1)
+g14 <- garchFit(~arma(2,2)+garch(1,1), stock_14)
+```
+
+
+By looking at the ACF plot of stock1, we observe that there is significant correlation only at lag 10 whereas when we look at the ACF plot of squared stock1, we observe that there is no significant correlation, hence indicating that there is no conditional heteroscedasticity in stock1 time series. The 0.9924 p-value of Ljung-Box test on squared stock1  also supports our claim that there is no volatility in stock1 time series. Hence our model fits the stock1 series accurately.
+
+By looking at the ACF plot of stock14, we observe that there is significant correlation only at lag 9 whereas when we look at the ACF plot of squared stock14, we observe that there is significant correlation at lag 1 and 10, hence indicating that there might be conditional heteroscedasticity in stock14 time series. The 0.8591 p-value of Ljung-Box test on squared stock14 tells us that there is no evidences supporting  volatility in stock14 time series.  Hence our model fits the stock14 series accurately.
+
+
+Now that we have the ARMA+GARCH models for each stock time series, we will forecast the 15% quantiles 10 steps ahead for stock_1 and stock_14 time series
+
+```{r, warning=FALSE}
+predictcv1 <- predict(g1, 10)$standardDeviation
+predictcv14 <- predict(g14, 10)$standardDeviation
+error.dis.1 <- stock_1/g1@sigma.t
+error.dis.14 <- stock_14/g14@sigma.t
+qNonParam.1 <- c()
+qNonParam.14 <- c()
+for (i in predictcv1){
+  q <- i*quantile(error.dis.1,0.15)
+  qNonParam.1 <- c(qNonParam.1,q)
+}
+
+for (i in predictcv14){
+  q <- i*quantile(error.dis.14,0.15)
+  qNonParam.14 <- c(qNonParam.14,q)
+}
+plot(stock_1, xlim=c(0, length(stock_1)+10))
+points(x=151:160, qNonParam.1, col="red", type="l")
+
+plot(stock_14, xlim=c(0, length(stock_14)+10))
+points(x=151:160, qNonParam.14, col="red", type="l")
+```
+
+The above plots give us the  15% quantiles forecasts 10 steps ahead for stock_1 and stock_14 time series. Both the quantiles forecasts look plasuible given the past observation of each time series.
+
+Now, we will forecast 15% quantiles forecasts 10 steps ahead for all the 40 stocks.
+
+```{r, warning=FALSE}
+stock_quantiles <- matrix(data = NA, nrow=10, ncol=40)
+for (i in num_stocks) {
+  stock_x = ts(stock_matrix[,i], start=1, frequency=1)
+  stock_orders = stock_params[,i]
+  p = stock_orders[1]
+  q = stock_orders[2]
+  pG = stock_orders[3]
+  qG = stock_orders[4]
+  if (i==40) {
+    g.temp <- garchFit(substitute(~arma(a,b)+garch(i,j), list(a=2, b=1, i=pG,j=qG)),stock_x,trace=F)
+  } else {
+    g.temp <- garchFit(substitute(~arma(a,b)+garch(i,j), list(a=p, b=q, i=pG,j=qG)),stock_x,trace=F)
+  }
+  cv.temp <- predict(g.temp, 10)$standardDeviation
+  error.dis.temp <- stock_x/g.temp@sigma.t
+  qNonParam.temp <- c()
+  for (z in cv.temp){
+    q.temp <- z*quantile(error.dis.temp,0.15)
+    qNonParam.temp <- c(qNonParam.temp,q.temp)
+  }
+  stock_quantiles[,i] = qNonParam.temp
+}
+
+```
+
+
+```{r}
+forecast2 = stock_quantiles #forecasts for stock 1-40 should be stored in the columns of a 10x40 dimensional matrix
+
+write.table(forecast2, file = paste("Scenario2_","Lamba","20751692",".txt", sep = ""), sep ="," , col.names = F, row.names = F )
+
+```
+
+
+
+
+
