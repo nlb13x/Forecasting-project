@@ -16,10 +16,10 @@ Problem:  Given time series of beer, car, steel, gas, electricity production and
 
 Scenario5: Long Horizon Pollution Forecasting
 Problem:  Given half-hourly measurements of the concentration of an air pollutant in three
-          different cities over 53 days
+          different cities over 53 day
+          Forecast each stock series 1 to 366 half-hourly steps ahead, which corresponds to 
+          one week ahead along with 95% prediction intervals
           
-
-
 
 - forecasting_results : forecasting results for each scenario
 - scenario_{} : dataset for each scenario and corresponding R files
